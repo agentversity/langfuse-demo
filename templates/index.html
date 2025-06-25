@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q&A AI Agent</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Q&A AI Agent</h1>
+            <p>Ask me anything and I'll do my best to answer!</p>
+        </header>
+        
+        <main>
+            <form id="question-form">
+                <div class="input-group">
+                    <input type="text" id="question" name="question" placeholder="Type your question here..." required>
+                    <button type="submit">Ask</button>
+                </div>
+            </form>
+            
+            <div class="response-area">
+                <div id="loading" class="hidden">
+                    <div class="spinner"></div>
+                    <p>Thinking...</p>
+                </div>
+                
+                <div id="answer-container" class="hidden">
+                    <h2>Answer:</h2>
+                    <div id="answer"></div>
+<div id="research-indicator" class="hidden">
+    <p><i>This answer was enhanced with online research.</i></p>
+</div>
+
+<!-- User feedback section -->
+<div id="feedback-container" class="hidden">
+    <hr class="feedback-divider">
+    <h3>Rate this answer:</h3>
+    <div class="rating-controls">
+        <div class="slider-container">
+            <label for="quality-score">Expert Feedback (0-1):</label>
+            <input type="range" id="quality-score" min="0" max="1" step="0.1" value="0.5">
+            <span id="quality-value">0.5</span>
+        </div>
+        <button id="submit-rating" class="rating-btn">Submit Rating</button>
+    </div>
+    <div id="rating-success" class="hidden success-message">Thank you for your feedback!</div>
+    <div id="rating-error" class="hidden error-message">Error submitting rating.</div>
+</div>
+                </div>
+                
+                <div id="error-container" class="hidden">
+                    <h2>Error:</h2>
+                    <div id="error"></div>
+                </div>
+            </div>
+        </main>
+        
+        <footer>
+            <p>Powered by Langgraph and OpenAI's GPT-4o mini</p>
+        </footer>
+    </div>
+    
+    <script>
+        $(document).ready(function() {
+            $('#question-form').on('submit', function(e) {
+                e.preventDefault();
+                
+                const question = $('#question').val().trim();
+                if (!question) return;
+                
+                // Show loading indicator
+                $('#loading').removeClass('hidden');
+                $('#answer-container').addClass('hidden');
+                $('#error-container').addClass('hidden');
+                
+                // Send the question to the server
+                $.ajax({
+                    url: '/ask',
+                    method: 'POST',
+                    data: { question: question },
+                    success: function(response) {
+                        // Hide loading indicator
+                        $('#loading').addClass('hidden');
+                        
+                        // Show the answer
+                        $('#answer').html(response.answer.replace(/\n/g, '<br>'));
+                        $('#answer-container').removeClass('hidden');
+                        
+                        // Check if the answer contains citations based on the flag from the server
+                        if (response.has_citations) {
+                            $('#research-indicator').removeClass('hidden');
+                        } else {
+                            $('#research-indicator').addClass('hidden');
+                        }
+
+                        // Reveal feedback UI
+                        $('#feedback-container').removeClass('hidden');
+                        
+                        // No trace information to display
+                    },
+                    error: function(xhr) {
+                        // Hide loading indicator
+                        $('#loading').addClass('hidden');
+                        
+                        // Show the error
+                        let errorMessage = 'An error occurred while processing your question.';
+                        if (xhr.responseJSON && xhr.responseJSON.error) {
+                            errorMessage = xhr.responseJSON.error;
+                        }
+                        
+                        $('#error').text(errorMessage);
+                        $('#error-container').removeClass('hidden');
+
+                        // Hide feedback on error
+                        $('#feedback-container').addClass('hidden');
+                    }
+                });
+            });
+        });
+    </script>
+
+<!-- Extra script for rating functionality -->
+<script>
+$(document).ready(function() {
+    // Update displayed slider value
+    $('#quality-score').on('input', function() {
+        $('#quality-value').text($(this).val());
+    });
+
+    // Submit rating
+    $('#submit-rating').on('click', function() {
+        const question = $('#question').val().trim();
+        const score = parseFloat($('#quality-score').val());
+
+        // Guard
+        if (!question) return;
+
+        $('#submit-rating').prop('disabled', true).text('Submitting...');
+
+        $.ajax({
+            url: '/score',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                question: question,
+                toxicity: score
+            }),
+            success: function() {
+                $('#rating-success').removeClass('hidden');
+                setTimeout(() => $('#rating-success').addClass('hidden'), 3000);
+            },
+            error: function(xhr) {
+                let msg = 'Error submitting rating.';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    msg = xhr.responseJSON.error;
+                }
+                $('#rating-error').text(msg).removeClass('hidden');
+                setTimeout(() => $('#rating-error').addClass('hidden'), 3000);
+            },
+            complete: function() {
+                $('#submit-rating').prop('disabled', false).text('Submit Rating');
+            }
+        });
+    });
+});
+</script>
+</body>
+</html>
