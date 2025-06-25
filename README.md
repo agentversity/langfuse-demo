@@ -17,6 +17,99 @@ This project demonstrates how to build a simple but powerful question-answering 
 - Simple, clean web interface
 - Environment-based configuration
 
+## Setting Up Langfuse Locally
+
+This project uses Langfuse for observability and tracing. You can run Langfuse locally using Docker Compose:
+
+### Option 1: Using the Official Langfuse Repository (Recommended)
+
+1. **Clone the Langfuse repository**:
+   ```bash
+   git clone https://github.com/langfuse/langfuse.git
+   cd langfuse
+   ```
+
+2. **Start Langfuse with Docker Compose**:
+   ```bash
+   docker compose up -d
+   ```
+
+3. **Create an account and API keys**:
+   - Open [http://localhost:3000](http://localhost:3000) in your browser
+   - Create a new account
+   - Create a new project (or use the default project)
+   - Go to Settings > API Keys
+   - Create a new set of API keys (you'll need both the public and secret keys)
+
+### Option 2: Using a Custom Docker Compose File
+
+Create a `docker-compose.yml` file with the following content:
+
+```yaml
+version: '3'
+
+services:
+  postgres:
+    image: postgres:14
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=langfuse
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  langfuse:
+    image: langfuse/langfuse:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/langfuse
+      - NEXTAUTH_SECRET=your-nextauth-secret
+      - NEXTAUTH_URL=http://localhost:3000
+      - SALT=your-salt
+      - POSTGRES_PRISMA_URL=postgresql://postgres:postgres@postgres:5432/langfuse
+      - POSTGRES_URL_NON_POOLING=postgresql://postgres:postgres@postgres:5432/langfuse
+      - NEXT_PUBLIC_SIGN_UP_DISABLED=false
+      - NEXT_PUBLIC_DEMO_MODE=false
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+```
+
+Then run:
+```bash
+docker compose up -d
+```
+
+### Managing Your Langfuse Instance
+
+- **Stopping Langfuse**:
+  ```bash
+  docker compose down
+  ```
+
+- **Resetting data** (including the database):
+  ```bash
+  docker compose down -v
+  ```
+
+- **Updating Langfuse**:
+  ```bash
+  git pull  # If using Option 1
+  docker compose down
+  docker compose pull
+  docker compose up -d
+  ```
+
 ## Tech Stack / Architecture
 
 - **Backend**: Python 3.10+, Flask
@@ -51,15 +144,14 @@ graph TD
 
 - Python 3.10 or higher
 - OpenAI API key
-- Langfuse account (or local Langfuse instance)
+- Docker and Docker Compose (for running Langfuse locally)
 
 ## Setup
 
 1. Clone the repository:
    ```bash
    git clone https://github.com/agentversity/langfuse-demo.git
-
-   cd langfuse-tutorial
+   cd langfuse-demo
    ```
 
 2. Create and activate a virtual environment:
@@ -86,7 +178,7 @@ graph TD
    # Langfuse Configuration
    LANGFUSE_PUBLIC_KEY=your_langfuse_public_key
    LANGFUSE_SECRET_KEY=your_langfuse_secret_key
-   LANGFUSE_HOST=https://cloud.langfuse.com  # Or http://localhost:3000 for local instance
+   LANGFUSE_HOST=http://localhost:3000  # For local Langfuse instance
    
    # Optional: Prompt Management Configuration
    PROMPT_LABEL=development  # Label to use when fetching prompts from Langfuse
@@ -151,13 +243,86 @@ Response format:
 ```json
 {
   "success": true,
-  "message": "Toxicity score of 0.2 received (will be implemented with Langfuse SDK v3)"
+  "message": "Expert feedback score of 0.2 received and applied. Automated toxicity evaluation also performed."
 }
 ```
 
 The toxicity score should be a float between 0 and 1, where:
 - 0 = Not toxic at all
 - 1 = Extremely toxic
+
+## Integrating with Langfuse SDK v3
+
+This project uses Langfuse SDK v3 for tracing and observability. Here's how it's integrated:
+
+### SDK Installation
+
+The SDK is included in the requirements.txt file, but you can install it separately:
+
+```bash
+pip install langfuse==3.0.0
+```
+
+### Key Integration Points
+
+1. **Client Initialization**:
+   ```python
+   from langfuse import get_client
+   
+   # Initialize the client
+   langfuse_client = get_client()
+   ```
+
+2. **Observing Functions with Decorators**:
+   ```python
+   from langfuse import observe
+   
+   @observe(name="process_question")
+   def process_question(question: str, user_id: Optional[str] = None):
+       # Function implementation
+       pass
+   ```
+
+3. **Creating Spans**:
+   ```python
+   with langfuse_client.start_as_current_span(name="toxicity-evaluation"):
+       # Code to execute within this span
+       eval_result = evaluate_toxicity(answer, question)
+   ```
+
+4. **Adding Scores**:
+   ```python
+   langfuse_client.create_score(
+       name="llm_toxicity_evaluation",
+       value=eval_result["score"],
+       trace_id=trace_id,
+       data_type="NUMERIC",
+       comment=eval_result["reasoning"],
+   )
+   ```
+
+5. **Scoring Current Trace**:
+   ```python
+   langfuse_client.score_current_trace(
+       name="user-feedback",
+       value=1,
+       data_type="NUMERIC",
+   )
+   ```
+
+### Common Issues and Solutions
+
+1. **"No module named 'langfuse'"**: Make sure you've installed the SDK with `pip install langfuse==3.0.0`
+
+2. **Connection errors**: Verify your API keys and host in the `.env` file
+
+3. **No data appearing in Langfuse**: Check that your application is properly initialized with the correct API keys
+
+4. **"Unauthorized" errors**: Ensure your API keys have the correct permissions in Langfuse
+
+5. **Parameter errors**: If you see errors about unexpected parameters, check the SDK version and update your code to match the current API
+
+For more details, see the [official Langfuse documentation](https://langfuse.com/docs/sdk/python).
 
 ## Observability with Langfuse
 
@@ -176,31 +341,17 @@ To view traces:
 
 ### Scoring with Langfuse
 
-The application is designed to use Langfuse's scoring capabilities to track metrics about the generated responses, but the implementation is currently pending Langfuse SDK v3 compatibility:
+The application implements two types of scoring:
 
-#### Planned Scoring Features
+1. **Automated LLM-as-a-Judge Evaluation**:
+   - Automatically evaluates the toxicity of responses
+   - Uses OpenAI to analyze content and provide a score from 0-1
+   - Includes detailed reasoning for the score
 
-- **Toxicity**: A human-reviewed score from 0 to 1 indicating the toxicity level of the response
-  - 0 = Not toxic at all
-  - 1 = Extremely toxic
-
-The API endpoints for submitting scores are in place, but the actual scoring functionality will be implemented in a future update with Langfuse SDK v3.
-
-#### Human Review API
-
-The application includes API endpoints for human-reviewed scores:
-
-- **Toxicity**: A human-reviewed score from 0 to 1
-
-These scores can be submitted through:
-1. The `/ask` endpoint with a `toxicity` parameter
-2. The `/score` endpoint for adding scores after reviewing an answer
-
-Currently, these scores are logged but not applied to Langfuse traces. Full implementation with Langfuse SDK v3 is planned for a future update.
-
-Additional scores (like correctness, relevance, etc.) can be added in the future using the same mechanism.
-
-For more information on Langfuse, visit the [official documentation](https://langfuse.com/docs).
+2. **User Feedback**:
+   - Allows users to provide toxicity scores through the API
+   - Scores are attached to the corresponding trace
+   - Enables human-in-the-loop evaluation
 
 ### Prompt Management with Langfuse
 
@@ -240,25 +391,34 @@ To perform A/B testing with different prompt versions:
    python app.py
    ```
 
-## Running Langfuse Locally (Optional)
+## Troubleshooting
 
-If you want to run Langfuse locally:
+### Common Langfuse Issues
 
-1. Clone the Langfuse repository:
-   ```bash
-   git clone https://github.com/langfuse/langfuse.git
-   cd langfuse
-   ```
+1. **Langfuse UI not loading**:
+   - Check if the Docker containers are running: `docker compose ps`
+   - Check container logs: `docker compose logs langfuse`
+   - Ensure port 3000 is not being used by another application
 
-2. Start Langfuse using Docker Compose:
-   ```bash
-   docker compose up
-   ```
+2. **Connection issues from your application**:
+   - Verify your `.env` file has the correct Langfuse host and API keys
+   - If running in Docker, ensure proper network configuration
+   - Check application logs for connection errors
 
-3. Update your `.env` file to point to your local instance:
-   ```
-   LANGFUSE_HOST=http://localhost:3000
-   ```
+3. **No data appearing in Langfuse**:
+   - Verify API keys are correctly configured
+   - Check application logs for Langfuse-related errors
+   - Ensure the `@observe` decorators are properly applied in your code
+
+4. **SDK version compatibility issues**:
+   - This project uses Langfuse SDK v3
+   - If you see parameter errors, check the [SDK migration guide](https://langfuse.com/docs/sdk/python/migration)
+
+### Getting Help
+
+If you encounter issues not covered here, please:
+1. Check the [Langfuse documentation](https://langfuse.com/docs)
+2. Open an issue in this repository
 
 ## Contributing
 
